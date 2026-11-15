@@ -1,0 +1,6 @@
+{
+  "name": "DukanPro",
+  "description": "Mobile-first Shop Management & POS Android app for small and medium shops in Pakistan with offline-capable Firestore billing, barcode scanning, Udhaar Khata, inventory, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

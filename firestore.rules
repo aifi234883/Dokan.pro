@@ -1,0 +1,541 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitive Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isNonNegNumber(val) {
+      return (val is int || val is float) && val >= 0;
+    }
+
+    function isNumber(val) {
+      return val is int || val is float;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function hasVerifiedEmail() {
+      return isSignedIn() &&
+             'email_verified' in request.auth.token &&
+             request.auth.token.email_verified == true &&
+             'email' in request.auth.token;
+    }
+
+    function memberPath(shopId, uid) {
+      return /databases/$(database)/documents/shops/$(shopId)/members/$(uid);
+    }
+
+    function isShopMember(shopId) {
+      return isSignedIn() &&
+             exists(memberPath(shopId, request.auth.uid)) &&
+             get(memberPath(shopId, request.auth.uid)).data.active == true;
+    }
+
+    function memberRole(shopId) {
+      return get(memberPath(shopId, request.auth.uid)).data.role;
+    }
+
+    function isShopOwner(shopId) {
+      return isShopMember(shopId) && memberRole(shopId) == 'owner';
+    }
+
+    function isShopManagerOrOwner(shopId) {
+      return isShopMember(shopId) && memberRole(shopId) in ['owner', 'manager'];
+    }
+
+    // --- Entity Validation Helpers ---
+    function isValidShop(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50 &&
+             data.managerUids is list && data.managerUids.size() >= 1 && data.managerUids.size() <= 20 &&
+             data.plan in ['free', 'pro'] &&
+             data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+             (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 500)) &&
+             (!('taxRate' in data) || (isNonNegNumber(data.taxRate) && data.taxRate <= 100)) &&
+             (!('receiptFooter' in data) || (data.receiptFooter is string && data.receiptFooter.size() <= 250)) &&
+             (!('showReceiptSponsor' in data) || data.showReceiptSponsor is bool) &&
+             (!('allowNegativeStockOverride' in data) || data.allowNegativeStockOverride is bool);
+    }
+
+    function isValidMember(data, shopId, memberUid) {
+      return data.shopId == shopId &&
+             data.uid == memberUid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 150 &&
+             data.role in ['owner', 'manager', 'cashier'] &&
+             data.active is bool &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50;
+    }
+
+    function isValidInvite(data) {
+      return data.shopId is string && data.shopId.size() >= 1 && data.shopId.size() <= 128 &&
+             data.shopName is string && data.shopName.size() >= 1 && data.shopName.size() <= 100 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 150 &&
+             data.role in ['manager', 'cashier'] &&
+             data.invitedByUid is string && data.invitedByUid.size() >= 1 && data.invitedByUid.size() <= 128 &&
+             data.status in ['pending', 'accepted'];
+    }
+
+    function isValidProduct(data, shopId) {
+      return data.shopId == shopId &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             (!('nameUrdu' in data) || (data.nameUrdu is string && data.nameUrdu.size() <= 120)) &&
+             (!('barcode' in data) || (data.barcode is string && data.barcode.size() <= 64)) &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 60 &&
+             isNonNegNumber(data.purchasePrice) &&
+             isNonNegNumber(data.salePrice) &&
+             isNumber(data.stockQty) &&
+             isNonNegNumber(data.lowStockLimit) &&
+             data.unit in ['pcs', 'kg', 'ltr', 'dozen'] &&
+             (!('expiryDate' in data) || (data.expiryDate is string && data.expiryDate.size() <= 30)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 45000));
+    }
+
+    function isValidCustomer(data, shopId) {
+      return data.shopId == shopId &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.phone is string && data.phone.size() <= 30 &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 200)) &&
+             isNumber(data.balance);
+    }
+
+    function isValidSale(data, shopId) {
+      return data.shopId == shopId &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50 &&
+             data.invoiceNo is string && data.invoiceNo.size() >= 1 && data.invoiceNo.size() <= 40 &&
+             data.items is list && data.items.size() >= 1 && data.items.size() <= 100 &&
+             isNonNegNumber(data.subtotal) &&
+             isNonNegNumber(data.discount) &&
+             isNonNegNumber(data.tax) &&
+             isNonNegNumber(data.grandTotal) &&
+             isNonNegNumber(data.paidAmount) &&
+             isNonNegNumber(data.dueAmount) &&
+             data.paymentMethod in ['cash', 'jazzcash', 'easypaisa', 'card', 'udhaar'] &&
+             (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 128)) &&
+             (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 100)) &&
+             data.cashierId is string && data.cashierId.size() >= 1 && data.cashierId.size() <= 128 &&
+             (!('cashierName' in data) || (data.cashierName is string && data.cashierName.size() <= 100)) &&
+             data.status in ['completed', 'returned', 'held'];
+    }
+
+    function isValidLedger(data, shopId) {
+      return data.shopId == shopId &&
+             data.memberUids is list && data.memberUids.size() >= 1 && data.memberUids.size() <= 50 &&
+             data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.type in ['credit', 'payment'] &&
+             isNonNegNumber(data.amount) &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 200)) &&
+             (!('saleId' in data) || (data.saleId is string && data.saleId.size() <= 128));
+    }
+
+    function isValidSupplier(data, shopId) {
+      return data.shopId == shopId &&
+             data.managerUids is list && data.managerUids.size() >= 1 && data.managerUids.size() <= 20 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.phone is string && data.phone.size() <= 30 &&
+             isNumber(data.balance);
+    }
+
+    function isValidPurchase(data, shopId) {
+      return data.shopId == shopId &&
+             data.managerUids is list && data.managerUids.size() >= 1 && data.managerUids.size() <= 20 &&
+             data.supplierId is string && data.supplierId.size() >= 1 && data.supplierId.size() <= 128 &&
+             (!('supplierName' in data) || (data.supplierName is string && data.supplierName.size() <= 100)) &&
+             data.items is list && data.items.size() >= 1 && data.items.size() <= 100 &&
+             isNonNegNumber(data.total) &&
+             isNonNegNumber(data.paid) &&
+             isNonNegNumber(data.due);
+    }
+
+    function isValidExpense(data, shopId) {
+      return data.shopId == shopId &&
+             data.managerUids is list && data.managerUids.size() >= 1 && data.managerUids.size() <= 20 &&
+             data.category in ['rent', 'electricity', 'salary', 'transport', 'other'] &&
+             isNonNegNumber(data.amount) &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 200));
+    }
+
+    function isValidDayClosing(data, shopId) {
+      return data.shopId == shopId &&
+             data.managerUids is list && data.managerUids.size() >= 1 && data.managerUids.size() <= 20 &&
+             data.dateDisplay is string && data.dateDisplay.size() >= 8 && data.dateDisplay.size() <= 20 &&
+             isNonNegNumber(data.openingCash) &&
+             isNonNegNumber(data.totalSales) &&
+             isNonNegNumber(data.totalExpenses) &&
+             isNumber(data.expectedCash) &&
+             isNonNegNumber(data.countedCash) &&
+             isNumber(data.difference) &&
+             data.closedByUid is string && data.closedByUid.size() >= 1 && data.closedByUid.size() <= 128;
+    }
+
+    function isValidStockAdjustment(data, shopId) {
+      return data.shopId == shopId &&
+             data.managerUids is list && data.managerUids.size() >= 1 && data.managerUids.size() <= 20 &&
+             data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 128 &&
+             data.productName is string && data.productName.size() >= 1 && data.productName.size() <= 120 &&
+             isNumber(data.deltaQty) &&
+             data.reason in ['damage', 'correction', 'expired'] &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 200)) &&
+             data.adjustedByUid is string && data.adjustedByUid.size() >= 1 && data.adjustedByUid.size() <= 128;
+    }
+
+    function isValidAd(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+             data.linkUrl is string && data.linkUrl.size() <= 500 &&
+             data.placement in ['dashboard', 'receipt'] &&
+             data.active is bool &&
+             data.startDate is string && data.startDate.size() >= 8 && data.startDate.size() <= 20 &&
+             data.endDate is string && data.endDate.size() >= 8 && data.endDate.size() <= 20 &&
+             data.sponsor is string && data.sponsor.size() >= 1 && data.sponsor.size() <= 80 &&
+             data.impressions is int && data.impressions >= 0 &&
+             data.clicks is int && data.clicks >= 0;
+    }
+
+    function isValidUpgradeRequest(data) {
+      return data.shopId is string && data.shopId.size() >= 1 && data.shopId.size() <= 128 &&
+             data.shopName is string && data.shopName.size() >= 1 && data.shopName.size() <= 100 &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.ownerEmail is string && data.ownerEmail.size() >= 3 && data.ownerEmail.size() <= 150 &&
+             data.paymentMethod in ['jazzcash', 'easypaisa'] &&
+             data.transactionRef is string && data.transactionRef.size() >= 3 && data.transactionRef.size() <= 80 &&
+             (!('proofNote' in data) || (data.proofNote is string && data.proofNote.size() <= 300)) &&
+             data.status in ['pending', 'approved', 'rejected'];
+    }
+
+    // --- SHOPS ---
+    match /shops/{shopId} {
+      allow get: if isSignedIn() && isValidId(shopId) && isShopMember(shopId);
+      // No get()/exists() in list! Client queries .whereArrayContains("memberUids", uid)
+      allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+
+      allow create: if isSignedIn() &&
+                       isValidId(shopId) &&
+                       incoming().ownerId == request.auth.uid &&
+                       request.auth.uid in incoming().memberUids &&
+                       request.auth.uid in incoming().managerUids &&
+                       incoming().plan == 'free' &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       isValidShop(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(shopId) &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       isValidShop(incoming()) && (
+                         // Owner can update shop settings, members lists (cannot self-upgrade plan)
+                         (isShopOwner(shopId) &&
+                          incoming().plan == existing().plan &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'name', 'address', 'phone', 'logoUrl', 'currency', 'taxRate',
+                            'receiptFooter', 'showReceiptSponsor', 'allowNegativeStockOverride',
+                            'memberUids', 'managerUids', 'updatedAt'
+                          ])) ||
+                         // Invited user accepting invite adds their own UID to memberUids (and optionally managerUids)
+                         (incoming().plan == existing().plan &&
+                          request.auth.uid in incoming().memberUids &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'managerUids', 'updatedAt']))
+                       );
+
+      allow delete: if false;
+
+      // --- MEMBERS ---
+      match /members/{memberUid} {
+        allow get: if isSignedIn() && isValidId(memberUid) && (isShopMember(shopId) || request.auth.uid == memberUid);
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(memberUid) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidMember(incoming(), shopId, memberUid) && (
+                           // Owner creating own owner record during shop creation or adding staff
+                           (memberUid == request.auth.uid && incoming().role == 'owner' &&
+                            get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid) ||
+                           (isShopOwner(shopId)) ||
+                           // Staff accepting an invite creates their own member doc
+                           (memberUid == request.auth.uid && incoming().role in ['manager', 'cashier'] && incoming().active == true)
+                         );
+
+        allow update: if isSignedIn() &&
+                         isValidId(memberUid) &&
+                         isShopOwner(shopId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidMember(incoming(), shopId, memberUid) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'role', 'active', 'memberUids', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(memberUid) && isShopOwner(shopId) && memberUid != request.auth.uid;
+      }
+
+      // --- PRODUCTS ---
+      match /products/{productId} {
+        allow get: if isSignedIn() && isValidId(productId) && isShopMember(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(productId) &&
+                         (isShopManagerOrOwner(shopId) || (isShopMember(shopId) && incoming().purchasePrice == 0)) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidProduct(incoming(), shopId);
+
+        allow update: if isSignedIn() &&
+                         isValidId(productId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidProduct(incoming(), shopId) && (
+                           isShopManagerOrOwner(shopId) ||
+                           // Cashier can adjust stockQty during POS transactions or upload product picture
+                           (isShopMember(shopId) &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['stockQty', 'imageUrl', 'updatedAt']))
+                         );
+
+        allow delete: if isSignedIn() && isValidId(productId) && isShopManagerOrOwner(shopId);
+      }
+
+      // --- CUSTOMERS ---
+      match /customers/{customerId} {
+        allow get: if isSignedIn() && isValidId(customerId) && isShopMember(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(customerId) &&
+                         isShopMember(shopId) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidCustomer(incoming(), shopId);
+
+        allow update: if isSignedIn() &&
+                         isValidId(customerId) &&
+                         isShopMember(shopId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidCustomer(incoming(), shopId) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'address', 'balance', 'memberUids', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(customerId) && isShopManagerOrOwner(shopId);
+      }
+
+      // --- SALES ---
+      match /sales/{saleId} {
+        allow get: if isSignedIn() && isValidId(saleId) && isShopMember(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(saleId) &&
+                         isShopMember(shopId) &&
+                         incoming().cashierId == request.auth.uid &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidSale(incoming(), shopId);
+
+        // Allow resuming/completing held bill or marking completed bill as returned
+        allow update: if isSignedIn() &&
+                         isValidId(saleId) &&
+                         isShopMember(shopId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().cashierId == existing().cashierId &&
+                         existing().status != 'returned' &&
+                         isValidSale(incoming(), shopId) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paidAmount', 'dueAmount', 'paymentMethod', 'items', 'subtotal', 'discount', 'tax', 'grandTotal']);
+
+        allow delete: if isSignedIn() && isValidId(saleId) && isShopManagerOrOwner(shopId) && existing().status == 'held';
+      }
+
+      // --- LEDGER ---
+      match /ledger/{entryId} {
+        allow get: if isSignedIn() && isValidId(entryId) && isShopMember(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(entryId) &&
+                         isShopMember(shopId) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidLedger(incoming(), shopId);
+
+        allow update, delete: if false;
+      }
+
+      // --- SUPPLIERS (Manager/Owner only) ---
+      match /suppliers/{supplierId} {
+        allow get: if isSignedIn() && isValidId(supplierId) && isShopManagerOrOwner(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().managerUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(supplierId) &&
+                         isShopManagerOrOwner(shopId) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidSupplier(incoming(), shopId);
+
+        allow update: if isSignedIn() &&
+                         isValidId(supplierId) &&
+                         isShopManagerOrOwner(shopId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidSupplier(incoming(), shopId);
+
+        allow delete: if isSignedIn() && isValidId(supplierId) && isShopManagerOrOwner(shopId);
+      }
+
+      // --- PURCHASES (Manager/Owner only) ---
+      match /purchases/{purchaseId} {
+        allow get: if isSignedIn() && isValidId(purchaseId) && isShopManagerOrOwner(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().managerUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(purchaseId) &&
+                         isShopManagerOrOwner(shopId) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidPurchase(incoming(), shopId);
+
+        allow update, delete: if false;
+      }
+
+      // --- EXPENSES (Manager/Owner only) ---
+      match /expenses/{expenseId} {
+        allow get: if isSignedIn() && isValidId(expenseId) && isShopManagerOrOwner(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().managerUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(expenseId) &&
+                         isShopManagerOrOwner(shopId) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidExpense(incoming(), shopId);
+
+        allow update: if isSignedIn() &&
+                         isValidId(expenseId) &&
+                         isShopManagerOrOwner(shopId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidExpense(incoming(), shopId);
+
+        allow delete: if isSignedIn() && isValidId(expenseId) && isShopManagerOrOwner(shopId);
+      }
+
+      // --- DAY CLOSINGS (Manager/Owner only) ---
+      match /dayClosings/{dateKey} {
+        allow get: if isSignedIn() && isValidId(dateKey) && isShopManagerOrOwner(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().managerUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(dateKey) &&
+                         isShopManagerOrOwner(shopId) &&
+                         incoming().closedByUid == request.auth.uid &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidDayClosing(incoming(), shopId);
+
+        allow update: if isSignedIn() &&
+                         isValidId(dateKey) &&
+                         isShopManagerOrOwner(shopId) &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidDayClosing(incoming(), shopId);
+
+        allow delete: if false;
+      }
+
+      // --- STOCK ADJUSTMENTS (Manager/Owner only) ---
+      match /stockAdjustments/{adjId} {
+        allow get: if isSignedIn() && isValidId(adjId) && isShopManagerOrOwner(shopId);
+        allow list: if isSignedIn() && request.auth.uid in existing().managerUids;
+
+        allow create: if isSignedIn() &&
+                         isValidId(adjId) &&
+                         isShopManagerOrOwner(shopId) &&
+                         incoming().adjustedByUid == request.auth.uid &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidStockAdjustment(incoming(), shopId);
+
+        allow update, delete: if false;
+      }
+    }
+
+    // --- SHOP INVITES ---
+    match /shopInvites/{inviteId} {
+      allow get: if isSignedIn() && isValidId(inviteId) && (
+        existing().invitedByUid == request.auth.uid ||
+        (hasVerifiedEmail() && existing().email == request.auth.token.email)
+      );
+      allow list: if isSignedIn() && (
+        existing().invitedByUid == request.auth.uid ||
+        (hasVerifiedEmail() && existing().email == request.auth.token.email)
+      );
+      allow create: if isSignedIn() &&
+                       isValidId(inviteId) &&
+                       incoming().invitedByUid == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       isShopOwner(incoming().shopId) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       isValidInvite(incoming());
+      allow update: if isSignedIn() &&
+                       isValidId(inviteId) &&
+                       hasVerifiedEmail() &&
+                       existing().email == request.auth.token.email &&
+                       existing().status == 'pending' &&
+                       incoming().status == 'accepted' &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if isSignedIn() && isValidId(inviteId) && isShopOwner(existing().shopId);
+    }
+
+    // --- GLOBAL ADS ---
+    match /ads/{adId} {
+      allow get: if isSignedIn() && isValidId(adId);
+      allow list: if isSignedIn() && existing().active == true;
+
+      allow create: if false;
+
+      allow update: if isSignedIn() && isValidId(adId) && isValidAd(incoming()) && (
+        // Signed-in users can increment impression/click counters by 1
+        (incoming().diff(existing()).affectedKeys().hasOnly(['impressions']) &&
+         incoming().impressions == existing().impressions + 1) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['clicks']) &&
+         incoming().clicks == existing().clicks + 1)
+      );
+
+      allow delete: if false;
+    }
+
+    // --- PRO UPGRADE REQUESTS ---
+    match /upgradeRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && existing().ownerUid == request.auth.uid;
+      allow list: if isSignedIn() && existing().ownerUid == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(requestId) &&
+                       incoming().ownerUid == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       isShopOwner(incoming().shopId) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       isValidUpgradeRequest(incoming());
+
+      allow update, delete: if false;
+    }
+  }
+}

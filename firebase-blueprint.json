@@ -1,0 +1,315 @@
+{
+  "entities": {
+    "Shop": {
+      "title": "Shop",
+      "description": "A retail shop in DukanPro scoped to its owner and staff members.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Shop display name" },
+        "ownerId": { "type": "string", "description": "UID of the shop owner" },
+        "memberUids": { "type": "array", "description": "Active member UIDs for query isolation" },
+        "managerUids": { "type": "array", "description": "Owner and manager UIDs" },
+        "address": { "type": "string", "description": "Shop physical address" },
+        "phone": { "type": "string", "description": "Shop contact phone number" },
+        "logoUrl": { "type": "string", "description": "Optional shop logo URL" },
+        "plan": { "type": "string", "enum": ["free", "pro"], "description": "Subscription plan" },
+        "currency": { "type": "string", "description": "Currency symbol, e.g. Rs" },
+        "taxRate": { "type": "number", "description": "Default tax percentage" },
+        "receiptFooter": { "type": "string", "description": "Footer text printed on receipts" },
+        "showReceiptSponsor": { "type": "boolean", "description": "Whether receipt sponsor line is enabled" },
+        "allowNegativeStockOverride": { "type": "boolean", "description": "Whether owner allows negative stock sales" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["name", "ownerId", "memberUids", "managerUids", "plan", "currency", "createdAt", "updatedAt"]
+    },
+    "ShopMember": {
+      "title": "ShopMember",
+      "description": "Staff member record under a shop.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["owner", "manager", "cashier"] },
+        "active": { "type": "boolean" },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "uid", "name", "email", "role", "active", "memberUids", "createdAt", "updatedAt"]
+    },
+    "ShopInvite": {
+      "title": "ShopInvite",
+      "description": "Email invitation allowing a user to join a shop as manager or cashier.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "shopName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["manager", "cashier"] },
+        "invitedByUid": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "shopName", "email", "role", "invitedByUid", "status", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product item.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "name": { "type": "string" },
+        "nameUrdu": { "type": "string" },
+        "barcode": { "type": "string" },
+        "category": { "type": "string" },
+        "purchasePrice": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "stockQty": { "type": "number" },
+        "lowStockLimit": { "type": "number" },
+        "unit": { "type": "string", "enum": ["pcs", "kg", "ltr", "dozen"] },
+        "expiryDate": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "memberUids", "name", "category", "purchasePrice", "salePrice", "stockQty", "lowStockLimit", "unit", "createdAt", "updatedAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Shop customer with Udhaar Khata balance.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "balance": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "memberUids", "name", "phone", "balance", "createdAt", "updatedAt"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "POS sale, held bill, or return invoice.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "invoiceNo": { "type": "string" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discount": { "type": "number" },
+        "tax": { "type": "number" },
+        "grandTotal": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "dueAmount": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["cash", "jazzcash", "easypaisa", "card", "udhaar"] },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "cashierId": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed", "returned", "held"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "memberUids", "invoiceNo", "items", "subtotal", "discount", "tax", "grandTotal", "paidAmount", "dueAmount", "paymentMethod", "cashierId", "status", "createdAt"]
+    },
+    "LedgerEntry": {
+      "title": "LedgerEntry",
+      "description": "Customer Udhaar credit or payment entry.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "customerId": { "type": "string" },
+        "type": { "type": "string", "enum": ["credit", "payment"] },
+        "amount": { "type": "number" },
+        "note": { "type": "string" },
+        "saleId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "memberUids", "customerId", "type", "amount", "createdAt"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Wholesale supplier and payable balance.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "managerUids": { "type": "array" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "balance": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "managerUids", "name", "phone", "balance", "createdAt", "updatedAt"]
+    },
+    "Purchase": {
+      "title": "Purchase",
+      "description": "Stock purchase entry from a supplier.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "managerUids": { "type": "array" },
+        "supplierId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "paid": { "type": "number" },
+        "due": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "managerUids", "supplierId", "items", "total", "paid", "due", "createdAt"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Daily shop expense entry.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "managerUids": { "type": "array" },
+        "category": { "type": "string", "enum": ["rent", "electricity", "salary", "transport", "other"] },
+        "amount": { "type": "number" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "managerUids", "category", "amount", "createdAt"]
+    },
+    "DayClosing": {
+      "title": "DayClosing",
+      "description": "End-of-day cash reconciliation record.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "managerUids": { "type": "array" },
+        "dateDisplay": { "type": "string" },
+        "openingCash": { "type": "number" },
+        "totalSales": { "type": "number" },
+        "totalExpenses": { "type": "number" },
+        "expectedCash": { "type": "number" },
+        "countedCash": { "type": "number" },
+        "difference": { "type": "number" },
+        "closedByUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "managerUids", "dateDisplay", "openingCash", "totalSales", "totalExpenses", "expectedCash", "countedCash", "difference", "closedByUid", "createdAt"]
+    },
+    "StockAdjustment": {
+      "title": "StockAdjustment",
+      "description": "Audit log of manual stock adjustments.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "managerUids": { "type": "array" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "deltaQty": { "type": "number" },
+        "reason": { "type": "string", "enum": ["damage", "correction", "expired"] },
+        "note": { "type": "string" },
+        "adjustedByUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "managerUids", "productId", "productName", "deltaQty", "reason", "adjustedByUid", "createdAt"]
+    },
+    "AdBanner": {
+      "title": "AdBanner",
+      "description": "Global sponsored ad displayed on dashboard or receipt for free-plan shops.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "linkUrl": { "type": "string" },
+        "placement": { "type": "string", "enum": ["dashboard", "receipt"] },
+        "active": { "type": "boolean" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "sponsor": { "type": "string" },
+        "impressions": { "type": "integer" },
+        "clicks": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "linkUrl", "placement", "active", "startDate", "endDate", "sponsor", "impressions", "clicks", "createdAt"]
+    },
+    "UpgradeRequest": {
+      "title": "UpgradeRequest",
+      "description": "Manual JazzCash/EasyPaisa Pro upgrade request submitted by shop owner.",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "shopName": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["jazzcash", "easypaisa"] },
+        "transactionRef": { "type": "string" },
+        "proofNote": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopId", "shopName", "ownerUid", "ownerEmail", "paymentMethod", "transactionRef", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/shops/{shopId}": {
+      "schema": { "$ref": "#/entities/Shop" },
+      "description": "Top-level shop documents."
+    },
+    "/shops/{shopId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/ShopMember" },
+      "description": "Active staff members for a shop."
+    },
+    "/shopInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/ShopInvite" },
+      "description": "Pending staff invitations by email."
+    },
+    "/shops/{shopId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Shop inventory products."
+    },
+    "/shops/{shopId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Shop customers and Udhaar balances."
+    },
+    "/shops/{shopId}/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/Sale" },
+      "description": "Completed, held, and returned POS sales."
+    },
+    "/shops/{shopId}/ledger/{entryId}": {
+      "schema": { "$ref": "#/entities/LedgerEntry" },
+      "description": "Customer Udhaar Khata ledger entries."
+    },
+    "/shops/{shopId}/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Suppliers for stock purchases (manager/owner only)."
+    },
+    "/shops/{shopId}/purchases/{purchaseId}": {
+      "schema": { "$ref": "#/entities/Purchase" },
+      "description": "Supplier purchase invoices (manager/owner only)."
+    },
+    "/shops/{shopId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "Daily shop expenses (manager/owner only)."
+    },
+    "/shops/{shopId}/dayClosings/{dateKey}": {
+      "schema": { "$ref": "#/entities/DayClosing" },
+      "description": "Daily cash register closing records (manager/owner only)."
+    },
+    "/shops/{shopId}/stockAdjustments/{adjId}": {
+      "schema": { "$ref": "#/entities/StockAdjustment" },
+      "description": "Stock adjustment audit logs (manager/owner only)."
+    },
+    "/ads/{adId}": {
+      "schema": { "$ref": "#/entities/AdBanner" },
+      "description": "Global sponsored ads."
+    },
+    "/upgradeRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/UpgradeRequest" },
+      "description": "Pro upgrade verification requests."
+    }
+  }
+}
